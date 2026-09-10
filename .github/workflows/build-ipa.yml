@@ -1,0 +1,54 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # NOTE: This produces an UNSIGNED archive/IPA. It cannot be installed
+      # on a real device via TestFlight or ad-hoc distribution without
+      # real Apple signing credentials. To produce a signed, installable
+      # IPA, add these repository secrets and extend this workflow to
+      # import the certificate/profile before archiving:
+      #   BUILD_CERTIFICATE_BASE64, P12_PASSWORD,
+      #   BUILD_PROVISION_PROFILE_BASE64, KEYCHAIN_PASSWORD,
+      #   APP_STORE_CONNECT_API_KEY_BASE64, APP_STORE_CONNECT_KEY_ID,
+      #   APP_STORE_CONNECT_ISSUER_ID
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project Aeris.xcodeproj \
+            -scheme Aeris \
+            -archivePath build/Aeris.xcarchive \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES | xcpretty || true
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R build/Aeris.xcarchive/Products/Applications/Aeris.app build/Payload/ || true
+          cd build && zip -r Aeris-unsigned.ipa Payload || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aeris-build
+          path: |
+            build/Aeris-unsigned.ipa
+            build/Aeris.xcarchive
